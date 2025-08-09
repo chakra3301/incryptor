@@ -106,9 +106,7 @@ export default function Home() {
       imageURL,
       bits,
       autoExpand,
-      maxCanvas, // Pass the detected max canvas size
-      originalName: dataFile.name,
-      originalMime: dataFile.type || undefined
+      maxCanvas // Pass the detected max canvas size
     });
   };
 
@@ -135,9 +133,7 @@ export default function Home() {
           detectedType: data.detectedType
         };
         // Check if the worker detected a specific file type
-        if (data.text) {
-          setDecodedText(data.text);
-        } else if (data.detectedType && !data.detectedType.toLowerCase().includes("text")) {
+        if (data.detectedType && !data.detectedType.toLowerCase().includes("text")) {
           // Worker detected a non-text file type - offer download
           // The dl state is already set with the blob URL, so download link will be available
         } else if (
@@ -483,9 +479,7 @@ export default function Home() {
                     imageURL,
                     bits,
                     autoExpand,
-                    maxCanvas,
-                    originalName: fileToEncode.name,
-                    originalMime: fileToEncode.type || undefined
+                    maxCanvas
                   });
                 }}
                 disabled={processing}

@@ -195,30 +195,19 @@ self.onmessage = async ({ data }: MessageEvent<DecodeMessage>) => {
     }
     
     if (hasMarker && fullData.length >= 19) {
-      // Read header fields from the concatenated data
+      // Read the compressed size from header to know how much data to use
       const view = new DataView(fullData.buffer, fullData.byteOffset, fullData.byteLength);
-      const flags = view.getUint8(14);
       const compressedSize = view.getUint32(15, true);
-      let dataOffset = 19;
-      if ((flags & 0x02) !== 0) {
-        // There is an extra metadata block: FNLEN(2) + FNB + MMLEN(2) + MMB
-        const fnLen = view.getUint16(19, true);
-        const mmLenOffset = 19 + 2 + fnLen;
-        const mmLen = view.getUint16(mmLenOffset, true);
-        dataOffset = mmLenOffset + 2 + mmLen;
-        // Clamp to avoid overrun in case of corruption
-        dataOffset = Math.min(dataOffset, fullData.length);
-      }
-      actualDataEnd = Math.min(dataOffset + compressedSize, fullData.length);
-      console.log(`Found STEGO3 header, dataOffset=${dataOffset}, dataSize=${compressedSize}, end=${actualDataEnd}`);
+      actualDataEnd = 19 + compressedSize; // header + data
+      console.log(`Found STEGO3 header, actual data size: ${actualDataEnd} bytes (header: 19, data: ${compressedSize})`);
       console.log(`Total extracted: ${fullData.length} bytes, using first ${actualDataEnd} bytes`);
     }
     
-    // Let metadata decoder determine exact offsets; use fullData to avoid premature truncation
-    const decoded = decodeWithMetadata(fullData);
+    // Only use the actual data, not the padding
+    const trimmedData = fullData.slice(0, actualDataEnd);
+    
+    const decoded = decodeWithMetadata(trimmedData);
     let actualData: Uint8Array;
-    let preferredName: string | undefined;
-    let preferredMime: string | undefined;
     
     if (decoded) {
       console.log(`Successfully decoded with metadata:`);
@@ -228,8 +217,6 @@ self.onmessage = async ({ data }: MessageEvent<DecodeMessage>) => {
       console.log(`  Actual extracted data size: ${decoded.data.length} bytes`);
       console.log(`  Total data with metadata: ${fullData.length} bytes`);
       console.log(`  Checksum present: ${decoded.metadata.checksum !== undefined}`);
-      if (decoded.metadata.filename) preferredName = decoded.metadata.filename;
-      if (decoded.metadata.mimeType) preferredMime = decoded.metadata.mimeType;
       
       // Handle decompression if needed
       if (decoded.metadata.compressed) {
@@ -247,29 +234,23 @@ self.onmessage = async ({ data }: MessageEvent<DecodeMessage>) => {
       actualData = fullData;
     }
     
-    // Start with type detection, then override with explicit metadata if present
-    const detected = detectFileType(actualData);
-    const mimeType = preferredMime || detected.mimeType;
-    const suggestedName = preferredName || detected.suggestedName;
-    const isTextType = mimeType.startsWith('text/') || mimeType === 'application/json';
-    const description = isTextType ? 'Plain Text' : (preferredName ? 'Original file' : detected.description);
+    // Try to detect file type from magic numbers
+    const fileInfo = detectFileType(actualData);
     
     // Log first few bytes for debugging
     const firstBytes = Array.from(actualData.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' ');
     console.log('First 20 bytes:', firstBytes);
-    console.log('Detected type:', description);
+    console.log('Detected type:', fileInfo.description);
     
-    // Create blob with detected or original MIME type
-    const blob = new Blob([actualData], { type: mimeType });
-    const textPreview = isTextType ? new TextDecoder().decode(actualData) : undefined;
+    // Create blob with detected MIME type
+    const blob = new Blob([actualData], { type: fileInfo.mimeType });
     
     postMessage({ 
       done: true, 
       blob,
-      text: textPreview,
-      suggestedName,
+      suggestedName: fileInfo.suggestedName,
       fileSize: actualData.length,
-      detectedType: description
+      detectedType: fileInfo.description
     });
     
   } catch (error) {
